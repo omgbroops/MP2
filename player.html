@@ -335,8 +335,33 @@ body:not(.is-playing) .row-eq span{ animation-play-state:paused; }
 /* ---- blank / hidden mode ---- */
 #blank{ position:fixed; inset:0; z-index:9000; background:#fff; display:none; }
 #blank.show{ display:block; }
-body.hidden-mode .dock, body.hidden-mode .widget, body.hidden-mode .scrim, body.hidden-mode .modal, body.hidden-mode #immersive, body.hidden-mode #toast, body.hidden-mode #bg-wrap{ visibility:hidden !important; }
+body.hidden-mode .dock, body.hidden-mode .widget, body.hidden-mode .scrim, body.hidden-mode .modal, body.hidden-mode #immersive, body.hidden-mode #toast, body.hidden-mode #bg-wrap, body.hidden-mode #xq-ov, body.hidden-mode #xq-sc{ visibility:hidden !important; }
 .dock.hidden{ display:none; }
+
+/* ---- aux surface ---- */
+.widget.xq{ width:min(94vw,560px); display:flex; flex-direction:column; }
+.widget.xq.hidden{ display:none; }
+.xq-head{ display:flex; align-items:center; justify-content:center; padding:9px 0 7px; cursor:grab; flex:0 0 auto; }
+.xq-head.dragging{ cursor:grabbing; }
+.xq-head .grip{ width:34px; height:4px; border-radius:3px; background:rgba(255,255,255,0.18); }
+.xq-body{ padding:0 8px 9px; }
+.xq-body iframe{ width:100%; height:min(60vh,540px); border:none; border-radius:18px; background:rgba(0,0,0,0.20); display:block; }
+
+.xq-sc{ position:fixed; inset:0; z-index:80; background:rgba(0,0,0,0.5); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); opacity:0; pointer-events:none; transition:.2s; }
+.xq-sc.show{ opacity:1; pointer-events:auto; }
+.xq-ov{ position:fixed; z-index:81; top:3vh; left:3vw; right:3vw; bottom:3vh; border-radius:22px; overflow:hidden; display:flex; flex-direction:column; opacity:0; pointer-events:none; transform:scale(.992); transition:opacity .2s, transform .24s cubic-bezier(.2,.8,.2,1); }
+.xq-ov.show{ opacity:1; pointer-events:auto; transform:scale(1); }
+.xq-bar{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 13px; border-bottom:.5px solid var(--stroke-soft); flex:0 0 auto; }
+.xq-bar .dots{ display:flex; gap:7px; align-items:center; padding-left:5px; }
+.xq-bar .dots i{ width:11px; height:11px; border-radius:50%; background:rgba(255,255,255,0.15); display:block; }
+.xq-bar .acts{ display:flex; gap:7px; align-items:center; }
+.xq-tb{ height:32px; padding:0 13px; border-radius:11px; font-size:12.5px; font-weight:600; color:var(--text-dim); background:rgba(255,255,255,0.07); border:.5px solid var(--stroke-soft); display:inline-flex; align-items:center; gap:7px; transition:.14s; font-family:inherit; }
+.xq-tb:hover{ background:var(--hover); color:#fff; }
+.xq-tb.on{ background:#f4f4f5; color:#111; border-color:transparent; }
+.xq-tb.ic{ width:32px; padding:0; justify-content:center; border-radius:50%; }
+.xq-tb svg{ width:16px; height:16px; stroke-width:2.2px; stroke-linecap:round; stroke-linejoin:round; }
+.xq-stage{ flex:1 1 auto; min-height:0; background:#000; }
+.xq-stage iframe{ width:100%; height:100%; border:none; display:block; }
 </style>
 </head>
 <body class="hidden-mode">
@@ -490,6 +515,11 @@ body.hidden-mode .dock, body.hidden-mode .widget, body.hidden-mode .scrim, body.
   <div class="lyr-list" id="lyrics-list"></div>
 </div>
 
+<div class="widget xq glass hidden" id="w-xq">
+  <div class="xq-head" id="xq-head"><span class="grip"></span></div>
+  <div class="xq-body" id="xq-hold"></div>
+</div>
+
 <!-- LYRICS MODAL (choose / LRCLIB results / editor) -->
 <div class="modal glass" id="modal-lyrics">
   <div class="modal-head"><div class="modal-title" id="lyr-modal-title">Lyrics</div><button class="close-x" data-close><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
@@ -528,6 +558,19 @@ body.hidden-mode .dock, body.hidden-mode .widget, body.hidden-mode .scrim, body.
 <!-- COMMAND PALETTE -->
 <div id="cmd">
   <div class="cmd-box glass"><input type="text" id="cmd-input" placeholder="Type a command…" data-nodrag autocomplete="off" /></div>
+</div>
+
+<div class="xq-sc" id="xq-sc"></div>
+<div class="xq-ov glass" id="xq-ov">
+  <div class="xq-bar" id="xq-bar">
+    <div class="dots"><i></i><i></i><i></i></div>
+    <div class="acts">
+      <button class="xq-tb" id="xq-pop" title="Pop-ups">Pop-ups</button>
+      <button class="xq-tb ic" id="xq-new" title="Open in new tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>
+      <button class="xq-tb ic" id="xq-x" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+  </div>
+  <div class="xq-stage" id="xq-stage"></div>
 </div>
 
 <div id="blank" class="show"></div>
@@ -1465,6 +1508,123 @@ async function dropboxFindAndPlay(q){ let results=[]; try{ results=await Dropbox
   if(!best||score<0.4) return false; const blob=await Dropbox.download(best.path_lower); if(!blob) return false;
   const rec=await importBlob(blob,best.name,'dropbox'); renderLibrary(); renderQueue(); saveState(true); updateStorageInfo(); playContext('all',null,rec.id); toast('Imported '+(rec.title||rec.name)); return true; }
 
+/* =====================================================================
+   AUX SURFACE
+   ===================================================================== */
+const XQ_SB='allow-scripts allow-same-origin allow-forms allow-modals allow-pointer-lock allow-downloads allow-orientation-lock allow-presentation allow-top-navigation-by-user-activation allow-storage-access-by-user-activation';
+const XQ_AL='autoplay; fullscreen; clipboard-read; clipboard-write';
+function xqSb(p){ return XQ_SB+(p?' allow-popups allow-popups-to-escape-sandbox':''); }
+let xqC=null, xqPop=false, xqBuilt=false;
+
+const XQ_CSS=`
+:root{ --t:#f7f7f8; --d:rgba(247,247,248,.56); --f:rgba(247,247,248,.32); --st:rgba(255,255,255,.10); --hov:rgba(255,255,255,.08); }
+*{ box-sizing:border-box; margin:0; padding:0; }
+html,body{ height:100%; }
+body{ font-family:'Inter',-apple-system,system-ui,'Segoe UI',sans-serif; color:var(--t); background:transparent; -webkit-font-smoothing:antialiased; letter-spacing:-.012em; overflow:hidden; }
+::-webkit-scrollbar{ width:7px; height:7px; } ::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.14); border-radius:8px; } ::-webkit-scrollbar-thumb:hover{ background:rgba(255,255,255,.24); }
+#sidebar{ position:fixed; left:0; top:0; bottom:0; width:42px; display:flex; flex-direction:column; gap:5px; align-items:center; padding:12px 0; overflow-y:auto; background:rgba(0,0,0,.18); border-right:.5px solid var(--st); z-index:5; scrollbar-width:none; }
+#sidebar::-webkit-scrollbar{ display:none; }
+.sidebar-btn{ width:28px; height:28px; flex:0 0 auto; border:none; border-radius:9px; background:rgba(255,255,255,.06); color:var(--d); font-size:12px; font-weight:600; cursor:pointer; transition:.13s; font-family:inherit; }
+.sidebar-btn:hover{ background:var(--hov); color:#fff; }
+.sidebar-btn.empty{ opacity:.22; cursor:default; }
+.sidebar-btn.empty:hover{ background:rgba(255,255,255,.06); color:var(--d); }
+.wrap{ margin-left:42px; height:100%; overflow-y:auto; padding:0 16px 22px; }
+.bar{ position:sticky; top:0; z-index:4; padding:12px 2px 10px; background:linear-gradient(180deg,rgba(20,20,23,.72),rgba(20,20,23,.36) 70%,transparent); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
+#searchInput{ width:100%; padding:11px 15px; border-radius:13px; background:rgba(0,0,0,.34); border:.5px solid var(--st); color:#fff; font-size:13.5px; font-family:inherit; outline:none; letter-spacing:-.01em; }
+#searchInput::placeholder{ color:var(--f); }
+#searchInput:focus{ border-color:rgba(255,255,255,.3); }
+.letter-section{ margin-bottom:16px; }
+.letter-section.empty{ display:none; }
+.letter-header{ font-size:11px; font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--f); padding:8px 6px; }
+.buttons-container{ display:flex; flex-direction:column; gap:7px; }
+.empty-message{ color:var(--f); font-style:normal; font-size:12.5px; padding:10px 6px; }
+input[type=button]{ width:100%; text-align:left; padding:13px 16px; border-radius:14px; border:.5px solid var(--st); background:rgba(255,255,255,.05); color:var(--t); font-size:13.5px; font-weight:500; font-family:inherit; cursor:pointer; transition:.13s; letter-spacing:-.01em; }
+input[type=button]:hover{ background:rgba(255,255,255,.12); transform:translateY(-1px); }
+input[type=button]:active{ transform:translateY(0); }
+h1,h2{ display:none !important; }
+`;
+
+function xqInner(){
+  function abs(u){ try{ return new URL(u, location.href).href; }catch(e){ return u; } }
+  function sendU(u){ if(u&&/^(https?:|\/\/)/i.test(u)&&u.indexOf('about:blank')<0){ try{ parent.postMessage({k:'xq',t:'o',u:abs(u)},'*'); }catch(e){} } }
+  function sendH(h){ if(h){ try{ parent.postMessage({k:'xq',t:'o',h:h},'*'); }catch(e){} } }
+  function sink(){
+    var buf='', sent=false;
+    function flush(){ if(sent) return; if(buf && /<\/html>|<body|<canvas|<iframe|<embed|<div|<script/i.test(buf)){ sent=true; sendH(buf); } }
+    var dd={ write:function(s){ buf+=s; }, writeln:function(s){ buf+=s+'\n'; }, open:function(){ return dd; }, close:function(){ flush(); } };
+    try{ Object.defineProperty(dd,'body',{ get:function(){ return null; } }); }catch(e){}
+    setTimeout(flush, 90);
+    var loc={ assign:sendU, replace:sendU }; try{ Object.defineProperty(loc,'href',{ set:sendU }); }catch(e){}
+    var w={ document:dd, focus:function(){}, blur:function(){}, close:function(){ flush(); }, closed:false, opener:null };
+    try{ Object.defineProperty(w,'location',{ get:function(){ return loc; }, set:sendU }); }catch(e){}
+    return w;
+  }
+  try{ window.open=function(u){ if(u&&u!=='about:blank'&&u!==''&&/^(https?:|\/\/)/i.test(u)){ sendU(u); } return sink(); }; }catch(e){}
+  document.addEventListener('click', function(e){
+    var a=e.target&&e.target.closest&&e.target.closest('a[href]');
+    if(a){ var t=(a.getAttribute('target')||'').toLowerCase(); if(t==='_blank'||t===''){ var href=a.getAttribute('href'); if(href&&href.charAt(0)!=='#'&&href.slice(0,11).toLowerCase()!=='javascript:'){ e.preventDefault(); sendU(href); } } }
+  }, true);
+  window.addEventListener('keydown', function(e){
+    if(e.ctrlKey&&e.shiftKey&&!e.altKey&&e.code==='KeyH'){ e.preventDefault(); try{ parent.postMessage({k:'xq',t:'h'},'*'); }catch(_){} return; }
+    if(e.ctrlKey&&e.altKey&&e.shiftKey&&e.code==='KeyG'){ e.preventDefault(); try{ parent.postMessage({k:'xq',t:'t'},'*'); }catch(_){} return; }
+  }, true);
+  window.addEventListener('load', function(){ try{ var s=document.createElement('script'); s.src=atob('aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL2J1YmJscy91Z3Mtc2luZ2xlZmlsZUBsYXRlc3QvZ2FtZS5qcw=='); document.body.appendChild(s); }catch(e){} });
+}
+
+function xqDoc(){
+  const S=atob('aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL2J1YmJscy91Z3Mtc2luZ2xlZmlsZUBtYWluL3NlYXJjaGJ1dC5qcw==');
+  const G=atob('aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL2J1YmJscy91Z3Mtc2luZ2xlZmlsZUBtYWluL2dhbWVzLmpz');
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    +'<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">'
+    +'<style>'+XQ_CSS+'</style>'
+    +'<script>('+xqInner.toString()+')();<\/script>'
+    +'</head><body><div id="sidebar"></div>'
+    +'<div class="wrap"><div class="bar"><input type="text" id="searchInput" placeholder="Search…" autocomplete="off"></div>'
+    +'<div id="sections-container"></div><button id="lolbutton" style="display:none"></button></div>'
+    +'<script src="'+S+'"><\/script><script src="'+G+'"><\/script></body></html>';
+}
+
+function xqBuild(){
+  const f=document.createElement('iframe'); f.id='xq-f';
+  f.setAttribute('sandbox', XQ_SB); f.setAttribute('allow', XQ_AL);
+  f.srcdoc=xqDoc();
+  const hold=$('#xq-hold'); hold.innerHTML=''; hold.appendChild(f);
+  makeDraggable($('#w-xq'),{ handle:'.xq-head' });
+}
+function xqLayout(){ const w=$('#w-xq'); const ww=w.offsetWidth||520, wh=w.offsetHeight||480; w.style.left=Math.max(12,(innerWidth-ww)/2)+'px'; w.style.top=Math.max(14, Math.round(innerHeight*0.5-wh/2))+'px'; }
+function xqOpen(){ const w=$('#w-xq'); if(!w.classList.contains('hidden')){ w.classList.add('hidden'); return; } if(!xqBuilt){ xqBuild(); xqBuilt=true; } w.classList.remove('hidden'); w.style.zIndex='9'; xqLayout(); }
+
+function reflectPop(){ $('#xq-pop').classList.toggle('on', xqPop); }
+function xqRender(){ const st=$('#xq-stage'); st.innerHTML=''; const f=document.createElement('iframe'); f.id='xq-of'; f.setAttribute('sandbox', xqSb(xqPop)); f.setAttribute('allow', XQ_AL); f.addEventListener('load',()=>xqInject(f)); if(xqC&&xqC.m==='d') f.srcdoc=xqC.v; else if(xqC) f.src=xqC.v; st.appendChild(f); }
+function xqInject(f){ try{ const d=f.contentDocument; if(!d) return; d.addEventListener('keydown', function(e){ if(e.ctrlKey&&e.shiftKey&&!e.altKey&&e.code==='KeyH'){ e.preventDefault(); setHidden(!hidden); } }, true); }catch(e){} }
+function xqShow(c){ xqC=c; xqPop=false; reflectPop(); xqRender(); $('#xq-sc').classList.add('show'); $('#xq-ov').classList.add('show'); }
+function xqOv(){ return $('#xq-ov').classList.contains('show'); }
+function xqCloseOv(){ $('#xq-sc').classList.remove('show'); $('#xq-ov').classList.remove('show'); $('#xq-stage').innerHTML=''; xqC=null; }
+
+function xqShellScript(){
+  var b=document.getElementById('b'), hid=false;
+  function tog(){ hid=!hid; b.className=hid?'on':''; }
+  function onkey(e){ if(e.ctrlKey&&e.shiftKey&&!e.altKey&&(e.code==='KeyH'||e.key==='H'||e.key==='h')){ e.preventDefault(); tog(); } }
+  window.addEventListener('keydown', onkey, true); document.addEventListener('keydown', onkey, true);
+  var f=document.getElementById('f'); if(f) f.addEventListener('load', function(){ try{ f.contentDocument.addEventListener('keydown', onkey, true); }catch(e){} });
+}
+function xqShell(c, sb){
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const fr=(c.m==='d')
+    ? '<iframe id="f" sandbox="'+esc(sb)+'" allow="'+esc(XQ_AL)+'" srcdoc="'+esc(c.v)+'"></iframe>'
+    : '<iframe id="f" sandbox="'+esc(sb)+'" allow="'+esc(XQ_AL)+'" src="'+esc(c.v)+'"></iframe>';
+  return '<!doctype html><html><head><meta charset="utf-8"><title>New Tab</title>'
+    +'<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}#f{position:fixed;inset:0;width:100%;height:100%;border:none}#b{position:fixed;inset:0;background:#fff;display:none;z-index:2147483647}#b.on{display:block}</style>'
+    +'</head><body>'+fr+'<div id="b"></div>'
+    +'<script>('+xqShellScript.toString()+')();<\/script></body></html>';
+}
+function xqPout(c, pop){ const w=window.open('about:blank','_blank'); if(!w){ toast('Couldn’t open a new tab'); return; } try{ w.document.open(); w.document.write(xqShell(c, xqSb(pop))); w.document.close(); }catch(e){} }
+
+$('#xq-x').onclick=xqCloseOv; $('#xq-sc').onclick=xqCloseOv;
+$('#xq-pop').onclick=()=>{ xqPop=!xqPop; reflectPop(); xqRender(); };
+$('#xq-new').onclick=()=>{ if(xqC){ xqPout(xqC, xqPop); xqCloseOv(); } };
+window.addEventListener('message', e=>{ const d=e.data; if(!d||d.k!=='xq') return; if(d.t==='o'){ if(typeof d.h==='string'&&d.h) xqShow({m:'d',v:d.h}); else if(typeof d.u==='string') xqShow({m:'s',v:d.u}); } else if(d.t==='h'){ setHidden(!hidden); } else if(d.t==='t'){ xqOpen(); } });
+
 /* keybinds */
 const KEYBINDS=[['Space','Play / pause'],['← / →','Seek 5s'],['⇧ ← / →','Prev / next track'],['↑ / ↓','Volume'],['⇧ ↑ / ↓','Speed'],['Tab','Library'],['Q','Up Next'],['L','Lyrics'],['F','Immersive view'],['A','Add / import'],['O','Hide controls'],['S','Settings'],['⇧ S','Sound'],['C','Centre widget (while dragging)'],['Esc','Close']];
 function buildKbd(){ const g=$('#kbd-grid'); g.innerHTML=''; for(const [k,a] of KEYBINDS){ const keys=k.split(' ').map(x=>x==='/'?'<span style="color:var(--text-faint)">/</span>':`<b>${x}</b>`).join(' '); g.insertAdjacentHTML('beforeend',`<div class="kbd">${keys}</div><div class="kbd-act">${a}</div>`); } }
@@ -1472,6 +1632,7 @@ window.addEventListener('keydown',e=>{
   // always-on (even from inputs): unhide + command palette
   if(e.ctrlKey&&e.shiftKey&&e.code==='KeyH'){ e.preventDefault(); setHidden(!hidden); return; }
   if(e.ctrlKey&&e.shiftKey&&e.code==='Slash'){ e.preventDefault(); openCmd(); return; }
+  if(e.ctrlKey&&e.altKey&&e.shiftKey&&e.code==='KeyG'){ e.preventDefault(); xqOpen(); return; }
   // C while dragging a widget → snap it to the centre of the screen
   if(drag&&e.code==='KeyC'&&!e.ctrlKey&&!e.metaKey&&!e.altKey){ e.preventDefault(); const el=drag.el; el.style.left=Math.round((innerWidth-el.offsetWidth)/2)+'px'; el.style.top=Math.round((innerHeight-el.offsetHeight)/2)+'px'; return; }
   if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'){ if(e.key==='Escape') e.target.blur(); return; }
@@ -1496,7 +1657,7 @@ window.addEventListener('keydown',e=>{
   else if(k==='f'){ toggleImmersive(); }
   else if(e.code==='Tab'){ e.preventDefault(); if($('#modal-library').classList.contains('show')) closeModals(); else openLibrary(); }
   else if(k==='s'){ if(e.shiftKey){ toggleModal('modal-eq'); } else if($('#modal-settings').classList.contains('show')) closeModals(); else { updateStorageInfo(); openModal('modal-settings'); } }
-  else if(e.key==='Escape'){ if($('#cmd').classList.contains('show')) closeCmd(); else if($('#immersive').classList.contains('show')) exitImmersive(); else closeModals(); } });
+  else if(e.key==='Escape'){ if(xqOv()) xqCloseOv(); else if($('#cmd').classList.contains('show')) closeCmd(); else if($('#immersive').classList.contains('show')) exitImmersive(); else closeModals(); } });
 
 /* audio element events */
 // bind to BOTH decks; ignore events from the non-active deck (matters during crossfade)
